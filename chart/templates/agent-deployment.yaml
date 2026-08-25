@@ -1,0 +1,143 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "ai-eventer.fullname" . }}-agent
+  labels:
+    {{- include "ai-eventer.labels" . | nindent 4 }}
+    app.kubernetes.io/component: agent
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate # single SQLite writer — never run two agent pods at once
+  selector:
+    matchLabels:
+      {{- include "ai-eventer.labels" . | nindent 6 }}
+      app.kubernetes.io/component: agent
+  template:
+    metadata:
+      labels:
+        {{- include "ai-eventer.labels" . | nindent 8 }}
+        app.kubernetes.io/component: agent
+    spec:
+      serviceAccountName: {{ include "ai-eventer.serviceAccountName" . }}
+      securityContext:
+        {{- include "ai-eventer.podSecurityContext" . | nindent 8 }}
+      # Not every StorageClass's provisioner honors fsGroup (notably minikube's default
+      # hostPath-backed one, confirmed by hitting "readonly database" on the non-root
+      # agent container until this was added) - a one-shot root chown here works
+      # regardless of the underlying storage backend, so this is the portable fix,
+      # not a minikube-only workaround.
+      initContainers:
+        - name: fix-data-permissions
+          image: "{{ .Values.agent.image.repository }}:{{ .Values.agent.image.tag }}"
+          imagePullPolicy: {{ .Values.agent.image.pullPolicy }}
+          command: ["sh", "-c", "chown -R 1000:1000 /data"]
+          # Deliberately NOT using ai-eventer.containerSecurityContext here - dropping
+          # ALL capabilities (including CAP_CHOWN) would make even uid 0 unable to
+          # chown files it doesn't already own, defeating the one thing this
+          # container exists to do. This container's entire job is one `chown` call
+          # and it exits immediately after, so the extra capabilities are low-risk.
+          securityContext:
+            runAsUser: 0
+            runAsNonRoot: false
+          volumeMounts:
+            - name: data
+              mountPath: /data
+      containers:
+        - name: agent
+          image: "{{ .Values.agent.image.repository }}:{{ .Values.agent.image.tag }}"
+          imagePullPolicy: {{ .Values.agent.image.pullPolicy }}
+          securityContext:
+            {{- include "ai-eventer.containerSecurityContext" . | nindent 12 }}
+          ports:
+            - containerPort: 8000
+          env:
+            - name: RBAC_SCOPE
+              value: {{ .Values.rbac.scope | quote }}
+            - name: WATCH_NAMESPACES
+              value: {{ join "," .Values.watchNamespaces | quote }}
+            - name: OLLAMA_HOST
+              value: "http://{{ include "ai-eventer.fullname" . }}-ollama:{{ .Values.ollama.service.port }}"
+            - name: OLLAMA_MODEL
+              value: {{ .Values.ollama.model | quote }}
+            - name: LLM_TEMPERATURE
+              value: {{ .Values.ollama.llm.temperature | quote }}
+            - name: LLM_NUM_PREDICT
+              value: {{ .Values.ollama.llm.numPredict | quote }}
+            - name: LLM_NUM_CTX
+              value: {{ .Values.ollama.llm.numCtx | quote }}
+            - name: CHAT_NUM_PREDICT
+              value: {{ .Values.ollama.llm.chatNumPredict | quote }}
+            - name: CLUSTER_NUM_PREDICT
+              value: {{ .Values.ollama.llm.clusterNumPredict | quote }}
+            - name: DB_PATH
+              value: /data/eventer.db
+            - name: TARGETS_SEED_FILE
+              value: /config/targets.yaml
+            - name: ANALYZE_INTERVAL_SECONDS
+              value: {{ .Values.agent.analyzeIntervalSeconds | quote }}
+            - name: RETENTION_DAYS
+              value: {{ .Values.agent.retentionDays | quote }}
+            - name: CREATIVE_MODE_ENABLED
+              value: {{ .Values.creativeMode.enabled | quote }}
+            - name: CREATIVE_MODE_INTERVAL_SECONDS
+              value: {{ .Values.creativeMode.intervalSeconds | quote }}
+            - name: ADMIN_BOOTSTRAP_USERNAME
+              value: {{ .Values.auth.bootstrapUsername | quote }}
+            - name: ADMIN_BOOTSTRAP_EMAIL
+              value: {{ .Values.auth.bootstrapEmail | quote }}
+            - name: ADMIN_BOOTSTRAP_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "ai-eventer.fullname" . }}-auth
+                  key: admin-password
+            {{- if .Values.notifications.smtp.enabled }}
+            - name: SMTP_HOST
+              value: {{ .Values.notifications.smtp.host | quote }}
+            - name: SMTP_PORT
+              value: {{ .Values.notifications.smtp.port | quote }}
+            - name: SMTP_USE_TLS
+              value: {{ .Values.notifications.smtp.useTls | quote }}
+            - name: SMTP_FROM
+              value: {{ .Values.notifications.smtp.fromAddress | quote }}
+            - name: SMTP_USERNAME
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.notifications.smtp.existingSecretName }}
+                  key: username
+            - name: SMTP_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.notifications.smtp.existingSecretName }}
+                  key: password
+            {{- end }}
+          resources:
+            {{- toYaml .Values.agent.resources | nindent 12 }}
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: 8000
+            initialDelaySeconds: 5
+            periodSeconds: 5
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: 8000
+            initialDelaySeconds: 15
+            periodSeconds: 15
+          volumeMounts:
+            - name: data
+              mountPath: /data
+            - name: targets
+              mountPath: /config
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: data
+          persistentVolumeClaim:
+            claimName: {{ include "ai-eventer.fullname" . }}-agent-data
+        - name: targets
+          configMap:
+            name: {{ include "ai-eventer.fullname" . }}-targets
+        - name: tmp
+          emptyDir: {}

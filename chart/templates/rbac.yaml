@@ -1,0 +1,77 @@
+{{- if .Values.serviceAccount.create }}
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: {{ include "ai-eventer.serviceAccountName" . }}
+  labels:
+    {{- include "ai-eventer.labels" . | nindent 4 }}
+{{- end }}
+---
+{{- if .Values.rbac.create }}
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: {{ include "ai-eventer.fullname" . }}
+  labels:
+    {{- include "ai-eventer.labels" . | nindent 4 }}
+rules:
+  # Note: under scope=namespaces, RoleBindings can't grant access to the
+  # cluster-scoped "nodes"/"namespaces" resources — visibility into those only
+  # takes effect under scope=cluster. That's intentional least-privilege
+  # behavior; api.py falls back to the configured watchNamespaces for the
+  # namespace dropdown when it can't list namespaces live, and rules.py skips
+  # its node-pressure check under scope=namespaces for the same reason.
+  # horizontalpodautoscalers/poddisruptionbudgets below are namespaced
+  # resources, so they work fine under either scope.
+  - apiGroups: [""]
+    resources: ["events", "pods", "nodes", "namespaces"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: ["events.k8s.io"]
+    resources: ["events"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: ["apps"]
+    resources: ["deployments", "replicasets", "statefulsets", "daemonsets"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: ["autoscaling"]
+    resources: ["horizontalpodautoscalers"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: ["policy"]
+    resources: ["poddisruptionbudgets"]
+    verbs: ["get", "list", "watch"]
+---
+{{- if eq .Values.rbac.scope "cluster" }}
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: {{ include "ai-eventer.fullname" . }}
+  labels:
+    {{- include "ai-eventer.labels" . | nindent 4 }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: {{ include "ai-eventer.fullname" . }}
+subjects:
+  - kind: ServiceAccount
+    name: {{ include "ai-eventer.serviceAccountName" . }}
+    namespace: {{ .Release.Namespace }}
+{{- else }}
+{{- range .Values.watchNamespaces }}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: {{ include "ai-eventer.fullname" $ }}
+  namespace: {{ . }}
+  labels:
+    {{- include "ai-eventer.labels" $ | nindent 4 }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: {{ include "ai-eventer.fullname" $ }}
+subjects:
+  - kind: ServiceAccount
+    name: {{ include "ai-eventer.serviceAccountName" $ }}
+    namespace: {{ $.Release.Namespace }}
+{{- end }}
+{{- end }}
+{{- end }}

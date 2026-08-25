@@ -1,0 +1,172 @@
+# -- RBAC / access scope --
+# scope: cluster    -> ClusterRole bound cluster-wide (ClusterRoleBinding)
+# scope: namespaces -> same ClusterRole, bound per-namespace (RoleBinding) to watchNamespaces below
+rbac:
+  create: true
+  scope: cluster
+serviceAccount:
+  create: true
+  name: ""
+
+# Only used when rbac.scope=namespaces
+watchNamespaces: []
+  # - default
+  # - backend
+
+# -- Storage --
+# Empty string = cluster's default StorageClass. Never hardcode a distro-specific class here.
+storageClassName: ""
+
+agent:
+  image:
+    repository: ai-eventer-agent
+    tag: dev
+    pullPolicy: IfNotPresent
+  resources:
+    requests:
+      cpu: 100m
+      memory: 128Mi
+    limits:
+      cpu: 500m
+      memory: 256Mi
+  # How often the analyzer re-evaluates rules + calls the LLM per watch target.
+  analyzeIntervalSeconds: 180
+  # How many days of events/insights to retain before pruning.
+  retentionDays: 7
+  persistence:
+    size: 1Gi
+
+# -- Creative mode: periodic unscoped sweep of every Deployment in scope, not
+# just watch targets - "what am I not watching that I should be." --
+# REAL ADDED COST if enabled: one more periodic LLM call on the same CPU-only
+# Ollama instance that already serves per-target analysis and chat (they will
+# queue behind each other if they overlap), plus a full Deployment listing
+# across every namespace in scope on every tick. Off by default for that
+# reason. Keep intervalSeconds well above agent.analyzeIntervalSeconds so it
+# can't dominate CPU time - the UI's Cluster Overview page shows how many
+# deployments/namespaces were scanned and how long each tick actually took,
+# so the cost is visible in practice, not just in this comment.
+creativeMode:
+  enabled: true
+  intervalSeconds: 600
+
+ui:
+  image:
+    repository: ai-eventer-ui
+    tag: dev
+    pullPolicy: IfNotPresent
+  resources:
+    requests:
+      cpu: 100m
+      memory: 128Mi
+    limits:
+      cpu: 250m
+      memory: 256Mi
+  service:
+    type: ClusterIP
+    port: 8501
+
+# -- Optional Ingress for the UI Service. --
+# Off by default (kubectl port-forward is enough for local/dev use, and every
+# ingress controller's annotations differ - this chart deliberately doesn't
+# assume ALB/nginx/Traefik/etc). Enable and fill in `className`/`hosts` to
+# expose the UI externally, e.g. on EKS with the AWS Load Balancer Controller:
+#   ingress:
+#     enabled: true
+#     className: alb
+#     annotations:
+#       alb.ingress.kubernetes.io/scheme: internet-facing
+#     hosts:
+#       - host: eventer.example.com
+ingress:
+  enabled: false
+  className: ""
+  annotations: {}
+  hosts:
+    - host: ""
+      paths:
+        - path: /
+          pathType: Prefix
+  tls: []
+
+ollama:
+  image:
+    repository: ollama/ollama
+    tag: latest
+  model: llama3.2:3b
+  resources:
+    # llama3.2:3b was CPU-throttled at the old 2-core/4Gi limit (kubectl top
+    # showed it pegged at ~1.8 cores and ~4Gi with plenty of node headroom to
+    # spare) - this is the main lever for the ~100s+ first-token latency on
+    # CPU-only inference. Bump if your dev machine has fewer than ~4 free
+    # cores available to the minikube profile.
+    requests:
+      cpu: 2
+      memory: 2Gi
+    limits:
+      cpu: 4
+      memory: 5Gi
+  persistence:
+    size: 5Gi
+  service:
+    port: 11434
+  # The pull job only issues an `ollama pull` HTTP call against the server
+  # Deployment above and waits - it does no inference itself, so it needs
+  # nowhere near the server's resources.
+  pullJob:
+    resources:
+      requests:
+        cpu: 50m
+        memory: 64Mi
+      limits:
+        cpu: 200m
+        memory: 128Mi
+  llm:
+    temperature: 0.2
+    numPredict: 300
+    # Chat answers are free-form prose, not the analyzer's 3-bullet JSON template.
+    chatNumPredict: 400
+    # Cluster-wide sweeps (creative mode) can carry far more FACTS than a
+    # single-target analyze() - a smaller budget was observed truncating the
+    # JSON response mid-object once a sweep covered more than a few deployments.
+    clusterNumPredict: 500
+    numCtx: 2048
+
+# -- Access: login gate for the Streamlit UI --
+# The chart auto-generates a one-time random initial admin password and a
+# cookie-signing key into a K8s Secret on first install (helm.sh/resource-
+# policy: keep + a `lookup` guard - generated once, never overwritten by
+# `helm upgrade`, same idiom Bitnami-style charts use for a random initial
+# credential). Retrieve the generated admin password after install with:
+#   kubectl -n <namespace> get secret <release>-ai-eventer-auth -o jsonpath='{.data.admin-password}' | base64 -d
+auth:
+  bootstrapUsername: admin
+  bootstrapEmail: admin@example.com
+  cookieName: ai_eventer_auth
+  cookieExpiryDays: 30
+
+# -- Notifications: SMTP client config for per-target Critical-transition alerts --
+# This chart does NOT deploy a mail server - SPF/DKIM/reverse-DNS and
+# deliverability are unsolvable for a random in-cluster server, and outbound
+# :25 is usually blocked anyway. Point this at a mailbox/relay you already
+# have. Credentials always come from an existing Secret you create yourself
+# (never put a real SMTP password in values.yaml) - e.g.:
+#   kubectl create secret generic ai-eventer-smtp \
+#     --from-literal=username=<smtp-username> --from-literal=password=<smtp-password>
+notifications:
+  smtp:
+    enabled: false
+    host: ""
+    port: 587
+    useTls: true
+    fromAddress: ""
+    existingSecretName: ""   # must have "username" and "password" keys, per the kubectl example above
+
+# Default watch targets, seeded on install so a cluster rebuild recreates known state.
+watchTargets:
+  - name: example-backend
+    namespace: default
+    selector:
+      kind: deployment  # also supports: statefulset, daemonset
+      name: example-backend
+    instruction: "This is a backend service. Watch its events and tell me if it's healthy."

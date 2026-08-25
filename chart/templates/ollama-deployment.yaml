@@ -1,0 +1,63 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "ai-eventer.fullname" . }}-ollama
+  labels:
+    {{- include "ai-eventer.labels" . | nindent 4 }}
+    app.kubernetes.io/component: ollama
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      {{- include "ai-eventer.labels" . | nindent 6 }}
+      app.kubernetes.io/component: ollama
+  template:
+    metadata:
+      labels:
+        {{- include "ai-eventer.labels" . | nindent 8 }}
+        app.kubernetes.io/component: ollama
+    spec:
+      containers:
+        - name: ollama
+          image: "{{ .Values.ollama.image.repository }}:{{ .Values.ollama.image.tag }}"
+          securityContext:
+            {{- include "ai-eventer.containerSecurityContext" . | nindent 12 }}
+          ports:
+            - containerPort: 11434
+          env:
+            # Ollama's default 5-minute idle unload means the first request
+            # after any gap (or right after a redeploy) pays a ~60-100s cold
+            # model-load penalty on top of normal inference time - observed
+            # directly during chat testing. Memory for the model is already
+            # reserved via resources.requests/limits below, so keeping it
+            # resident indefinitely costs nothing extra.
+            - name: OLLAMA_KEEP_ALIVE
+              value: "-1"
+          resources:
+            {{- toYaml .Values.ollama.resources | nindent 12 }}
+          # Server-up check only. Model presence is guaranteed by the post-install/
+          # post-upgrade pull Job (ollama-pull-job.yaml), not by this probe — the
+          # agent retries LLM calls gracefully if the model isn't pulled yet.
+          readinessProbe:
+            httpGet:
+              path: /api/tags
+              port: 11434
+            initialDelaySeconds: 5
+            periodSeconds: 5
+          livenessProbe:
+            httpGet:
+              path: /api/tags
+              port: 11434
+            initialDelaySeconds: 30
+            periodSeconds: 15
+          volumeMounts:
+            - name: models
+              mountPath: /root/.ollama
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: models
+          persistentVolumeClaim:
+            claimName: {{ include "ai-eventer.fullname" . }}-ollama-models
+        - name: tmp
+          emptyDir: {}

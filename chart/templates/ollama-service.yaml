@@ -1,0 +1,14 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "ai-eventer.fullname" . }}-ollama
+  labels:
+    {{- include "ai-eventer.labels" . | nindent 4 }}
+    app.kubernetes.io/component: ollama
+spec:
+  selector:
+    {{- include "ai-eventer.labels" . | nindent 4 }}
+    app.kubernetes.io/component: ollama
+  ports:
+    - port: {{ .Values.ollama.service.port }}
+      targetPort: 11434

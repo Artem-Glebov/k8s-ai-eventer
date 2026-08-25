@@ -1,0 +1,6 @@
+apiVersion: v2
+name: ai-k8s-eventer
+description: In-cluster Kubernetes event tracker with a local CPU-only LLM and Streamlit UI
+type: application
+version: 0.1.0
+appVersion: "0.1.0"

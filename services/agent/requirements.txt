@@ -1,0 +1,6 @@
+kubernetes==31.0.0
+ollama==0.4.7
+fastapi==0.115.6
+uvicorn[standard]==0.34.0
+pyyaml==6.0.2
+bcrypt==5.0.0

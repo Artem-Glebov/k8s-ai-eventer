@@ -1,0 +1,17 @@
+ai-k8s-eventer installed.
+
+The ollama-pull job is downloading {{ .Values.ollama.model }} in the background —
+the analyzer will retry gracefully until it's ready. Check progress with:
+
+  kubectl -n {{ .Release.Namespace }} logs -l app.kubernetes.io/component=ollama-pull -f
+
+Open the UI:
+
+  kubectl -n {{ .Release.Namespace }} port-forward svc/{{ include "ai-eventer.fullname" . }}-ui {{ .Values.ui.service.port }}:{{ .Values.ui.service.port }}
+
+Then browse to http://localhost:{{ .Values.ui.service.port }}
+
+Log in with the initial admin account (username: {{ .Values.auth.bootstrapUsername }}). Retrieve
+its generated password with:
+
+  kubectl -n {{ .Release.Namespace }} get secret {{ include "ai-eventer.fullname" . }}-auth -o jsonpath='{.data.admin-password}' | base64 -d

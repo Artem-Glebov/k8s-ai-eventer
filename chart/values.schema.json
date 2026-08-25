@@ -1,0 +1,204 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "ai-k8s-eventer values",
+  "type": "object",
+  "required": ["rbac", "serviceAccount", "agent", "ui", "ollama", "auth"],
+  "properties": {
+    "rbac": {
+      "type": "object",
+      "required": ["create", "scope"],
+      "properties": {
+        "create": { "type": "boolean" },
+        "scope": { "type": "string", "enum": ["cluster", "namespaces"] }
+      }
+    },
+    "serviceAccount": {
+      "type": "object",
+      "required": ["create"],
+      "properties": {
+        "create": { "type": "boolean" },
+        "name": { "type": "string" }
+      }
+    },
+    "watchNamespaces": {
+      "type": "array",
+      "items": { "type": "string", "minLength": 1 }
+    },
+    "storageClassName": { "type": "string" },
+    "agent": {
+      "type": "object",
+      "required": ["image", "resources"],
+      "properties": {
+        "image": { "$ref": "#/definitions/image" },
+        "resources": { "$ref": "#/definitions/resources" },
+        "analyzeIntervalSeconds": { "type": "integer", "minimum": 1 },
+        "retentionDays": { "type": "integer", "minimum": 1 },
+        "persistence": {
+          "type": "object",
+          "properties": {
+            "size": { "type": "string" }
+          }
+        }
+      }
+    },
+    "creativeMode": {
+      "type": "object",
+      "properties": {
+        "enabled": { "type": "boolean" },
+        "intervalSeconds": { "type": "integer", "minimum": 1 }
+      }
+    },
+    "ui": {
+      "type": "object",
+      "required": ["image", "resources", "service"],
+      "properties": {
+        "image": { "$ref": "#/definitions/image" },
+        "resources": { "$ref": "#/definitions/resources" },
+        "service": {
+          "type": "object",
+          "properties": {
+            "type": { "type": "string", "enum": ["ClusterIP", "NodePort", "LoadBalancer"] },
+            "port": { "type": "integer", "minimum": 1, "maximum": 65535 }
+          }
+        }
+      }
+    },
+    "ingress": {
+      "type": "object",
+      "properties": {
+        "enabled": { "type": "boolean" },
+        "className": { "type": "string" },
+        "annotations": { "type": "object" },
+        "hosts": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "host": { "type": "string" },
+              "paths": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "path": { "type": "string" },
+                    "pathType": { "type": "string", "enum": ["Prefix", "Exact", "ImplementationSpecific"] }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "tls": { "type": "array" }
+      }
+    },
+    "ollama": {
+      "type": "object",
+      "required": ["image", "model", "resources", "service"],
+      "properties": {
+        "image": { "$ref": "#/definitions/image" },
+        "model": { "type": "string", "minLength": 1 },
+        "resources": { "$ref": "#/definitions/resources" },
+        "persistence": {
+          "type": "object",
+          "properties": {
+            "size": { "type": "string" }
+          }
+        },
+        "service": {
+          "type": "object",
+          "properties": {
+            "port": { "type": "integer", "minimum": 1, "maximum": 65535 }
+          }
+        },
+        "pullJob": {
+          "type": "object",
+          "properties": {
+            "resources": { "$ref": "#/definitions/resources" }
+          }
+        },
+        "llm": {
+          "type": "object",
+          "properties": {
+            "temperature": { "type": "number", "minimum": 0, "maximum": 2 },
+            "numPredict": { "type": "integer", "minimum": 1 },
+            "chatNumPredict": { "type": "integer", "minimum": 1 },
+            "clusterNumPredict": { "type": "integer", "minimum": 1 },
+            "numCtx": { "type": "integer", "minimum": 1 }
+          }
+        }
+      }
+    },
+    "auth": {
+      "type": "object",
+      "required": ["bootstrapUsername", "cookieName"],
+      "properties": {
+        "bootstrapUsername": { "type": "string", "minLength": 1 },
+        "bootstrapEmail": { "type": "string" },
+        "cookieName": { "type": "string", "minLength": 1 },
+        "cookieExpiryDays": { "type": "integer", "minimum": 1 }
+      }
+    },
+    "notifications": {
+      "type": "object",
+      "properties": {
+        "smtp": {
+          "type": "object",
+          "required": ["enabled"],
+          "properties": {
+            "enabled": { "type": "boolean" },
+            "host": { "type": "string" },
+            "port": { "type": "integer", "minimum": 1, "maximum": 65535 },
+            "useTls": { "type": "boolean" },
+            "fromAddress": { "type": "string" },
+            "existingSecretName": { "type": "string" }
+          }
+        }
+      }
+    },
+    "watchTargets": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["name", "namespace", "selector", "instruction"],
+        "properties": {
+          "name": { "type": "string", "minLength": 1 },
+          "namespace": { "type": "string", "minLength": 1 },
+          "selector": {
+            "type": "object",
+            "required": ["kind", "name"],
+            "properties": {
+              "kind": { "type": "string", "enum": ["deployment", "statefulset", "daemonset"] },
+              "name": { "type": "string", "minLength": 1 }
+            }
+          },
+          "instruction": { "type": "string", "minLength": 1 }
+        }
+      }
+    }
+  },
+  "definitions": {
+    "image": {
+      "type": "object",
+      "required": ["repository"],
+      "properties": {
+        "repository": { "type": "string", "minLength": 1 },
+        "tag": { "type": "string" },
+        "pullPolicy": { "type": "string", "enum": ["Always", "IfNotPresent", "Never"] }
+      }
+    },
+    "resources": {
+      "type": "object",
+      "properties": {
+        "requests": { "$ref": "#/definitions/resourceList" },
+        "limits": { "$ref": "#/definitions/resourceList" }
+      }
+    },
+    "resourceList": {
+      "type": "object",
+      "properties": {
+        "cpu": { "type": ["string", "number"] },
+        "memory": { "type": ["string", "number"] }
+      }
+    }
+  }
+}

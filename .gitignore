@@ -1,0 +1,14 @@
+__pycache__/
+*.pyc
+.venv/
+venv/
+*.db
+*.db-journal
+*.db-wal
+*.db-shm
+.env
+.DS_Store
+testapp/
+todo
+.claude
+*pass

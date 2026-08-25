@@ -1,0 +1,45 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: {{ include "ai-eventer.fullname" . }}-ollama-pull
+  labels:
+    {{- include "ai-eventer.labels" . | nindent 4 }}
+    app.kubernetes.io/component: ollama-pull
+  annotations:
+    helm.sh/hook: post-install,post-upgrade
+    helm.sh/hook-weight: "0"
+    helm.sh/hook-delete-policy: before-hook-creation,hook-succeeded
+spec:
+  backoffLimit: 10
+  template:
+    metadata:
+      labels:
+        {{- include "ai-eventer.labels" . | nindent 8 }}
+        app.kubernetes.io/component: ollama-pull
+    spec:
+      restartPolicy: OnFailure
+      containers:
+        - name: pull
+          image: "{{ .Values.ollama.image.repository }}:{{ .Values.ollama.image.tag }}"
+          securityContext:
+            {{- include "ai-eventer.containerSecurityContext" . | nindent 12 }}
+          resources:
+            {{- toYaml .Values.ollama.pullJob.resources | nindent 12 }}
+          env:
+            - name: OLLAMA_HOST
+              value: "http://{{ include "ai-eventer.fullname" . }}-ollama:{{ .Values.ollama.service.port }}"
+          command:
+            - sh
+            - -c
+            - |
+              set -e
+              echo "Waiting for ollama service to accept connections..."
+              until ollama list >/dev/null 2>&1; do sleep 3; done
+              echo "Pulling model {{ .Values.ollama.model }}..."
+              ollama pull {{ .Values.ollama.model }}
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: tmp
+          emptyDir: {}
