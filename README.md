@@ -1,7 +1,5 @@
 # ai-k8s-eventer
 
-[![Buy Me a Coffee](https://cdn.buymeacoffee.com/buttons/v2/default-yellow.png)](https://www.buymeacoffee.com/artem.glebov)
-
 In-cluster Kubernetes event tracker with a local, CPU-only LLM (Ollama) and a Streamlit UI. Watches cluster Events, runs deterministic health checks (resource requests/limits, probes, crash/OOM/backoff patterns), and turns them into human-readable advice for user-defined "watch targets" — plain-language instructions like "this is the backend, tell me if it's healthy."
 
 No data leaves the cluster: the LLM runs in-cluster against Ollama, never an external API.
